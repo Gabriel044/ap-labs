@@ -32,7 +32,7 @@ int main(int argc, char **argv){
            printf("%s ",reverse(wordLength,input));
             wordLength = 0;
             i = 0;
-           
+            
         }else {
             input[i] = c;
             i ++;

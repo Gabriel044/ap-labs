@@ -1,7 +1,12 @@
+Pacman Packages Report
+----------------------
 Installed packages : 250
 Removed packages : 0
 Upgraded packages : 30
 Current installed : 250
+
+List of packages
+----------------
 - Package Name        : ruby
   - Install date      : 2019-03-28 14:31
   - Last update date  : 2019-04-24 11:42

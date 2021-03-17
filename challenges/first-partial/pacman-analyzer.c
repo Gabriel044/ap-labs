@@ -11,12 +11,6 @@ void analizeLog(char *logFile, char *report);
 int compareStrings(char *s1, char *s2);
 unsigned hash(char *s);
 
-struct tnode {        
-    struct package *node;                     
-    struct tnode * left;   
-    struct tnode * right;  
-};
-
 struct p_list{
     struct package *node;                     
     struct p_list * next;  
@@ -47,7 +41,7 @@ int main(int argc, char **argv) {
         printf("Usage:./pacman-analizer.o \n");
         return 1;
     }
-    printf("%s\n",argv[2]);
+    //printf("%s\n",argv[2]);
     int num;
     analizeLog(argv[2], REPORT_FILE);
 
@@ -56,7 +50,6 @@ int main(int argc, char **argv) {
 
 void analizeLog(char *logFile, char *report) {
     printf("Generating Report from: [%s] log file\n", logFile);
-    //struct tnode * root = NULL;
     struct p_list *current_element;
     FILE * fp;
     char * line = NULL, *input_date, *input_name, *action, *package_manager;
@@ -98,8 +91,6 @@ void analizeLog(char *logFile, char *report) {
                     insert(name,current_package);
                     installed_packages++;
                     current_installed++;
-                    created++;
-                    //printf("Installing...\n");
                 }
             }else{
                 current_package = current_element->node;
@@ -132,12 +123,10 @@ void analizeLog(char *logFile, char *report) {
                     removed_packages++;
                 }
             }
-           
+            if(i++ ==700) break;
         }
-        if(i++ == 1000) break;
     }
     fclose(fp);
-    //printf("Here at last\n");
     if (line)
         free(line);
     FILE *fptr;
@@ -147,21 +136,19 @@ void analizeLog(char *logFile, char *report) {
         printf("Error!");   
         exit(1);             
     }
-    //fprintf(fptr,"Pacman Packages Report\n");
-    //fprintf(fptr,"----------------------\n");
+
     fprintf(fptr,"Installed packages : %d\n",installed_packages);
     fprintf(fptr,"Removed packages : %d\n",removed_packages);
     fprintf(fptr,"Upgraded packages : %d\n",upgraded_packages);
     fprintf(fptr,"Current installed : %d\n",current_installed);
     fprintf(fptr,"\nList of packages\n");
     fprintf(fptr,"----------------\n");
-    //printf("we made it till here!\n");
     writePackages(fptr);
     fclose(fptr);
-    //printf("Installed packages : %d\n",installed_packages);
-    //printf("Removed packages : %d\n",removed_packages);
-    //printf("Upgraded packages : %d\n",upgraded_packages);
-    //printf("Current installed : %d\n",current_installed);
+   // printf("Installed packages : %d\n",installed_packages);
+   // printf("Removed packages : %d\n",removed_packages);
+   // printf("Upgraded packages : %d\n",upgraded_packages);
+   // printf("Current installed : %d\n",current_installed);
     printf("Report is generated at: [%s]\n", report);
 }
 
@@ -169,11 +156,9 @@ void writePackages(FILE *writer){
     struct p_list *current_element;
     struct package *current_package;
     for(int i = 0; i < HASHSIZE; i++){
-        //printf("We are inside the loop\n");
         if((current_element = Hashtable[i]) != NULL){
             while(current_element != NULL){
                 current_package = current_element->node;
-                //printf("current is: %s\n", current_package->name);
                 fprintf(writer,"- Package Name        : %s\n",current_package->name);
                 fprintf(writer,"  - Install date      : %s\n",current_package->install_date);
                 fprintf(writer,"  - Last update date  : %s\n",
@@ -216,14 +201,14 @@ void insert(char *name, struct package *current){
         np->node = current;
         hashval = hash(name);
         Hashtable[hashval] = np;
-    } else      
+    } else {    
         while (np->next != NULL){
             np = np->next;
         }
         np->next = (struct p_list *) malloc(sizeof(struct p_list));
         np->next->next = NULL;
         np->next->node = current;
-
+    }
 }
 
 int compareStrings(char *s1, char *s2){

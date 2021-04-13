@@ -1,5 +1,16 @@
 Lab - Logger Library
 ====================
+Building & Running the Logger:
+1. Compile the logger.c program: gcc -c logger.c -o logger.o 
+2. Declare the following functions in the header of the code you are using:
+    - int infof(const char *format, ...);
+    - int warnf(const char *format, ...);
+    - int errorf(const char *format, ...);
+    - int panicf(const char *format, ...);
+3. Use the respective functions throughout your code.
+4. Compile your code with the following format: gcc -c ${APP_NAME}.c -o ${APP_NAME}.o
+5. Finally merge both compilations in one with the following command: gcc ${APP_NAME}.o logger.o -o main.o
+6. Run main: ./main.o
 
 Implement a Logger library in C that will be used for printing the following types of messages.
 - `INFO` General information.

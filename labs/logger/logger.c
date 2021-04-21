@@ -1,6 +1,6 @@
 #include <stdio.h>
 #include <stdarg.h>
-  
+
 int infof(const char *format, ...){
     printf("%c[0;32;40m",0x1B);
     va_list message;
@@ -11,7 +11,6 @@ int infof(const char *format, ...){
 }
 
 int warnf(const char *format, ...){
-    //printf("^[[0;33;40m");
     printf("%c[0;33;40m",0x1B);
     va_list message;
     va_start(message,format);
@@ -21,7 +20,6 @@ int warnf(const char *format, ...){
 }
 
 int errorf(const char *format, ...){
-    //printf("^[[0;31;40m");
     printf("%c[0;31;40m",0x1B);
     va_list message;
     va_start(message,format);

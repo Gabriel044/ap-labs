@@ -9,33 +9,54 @@ package main
 
 import (
 	"bufio"
+	"flag"
 	"fmt"
 	"log"
 	"net"
+	"strings"
+	"time"
 )
 
 //!+broadcaster
 type client chan<- string // an outgoing message channel
 
+type user struct{
+	ip_address string
+	cli chan string
+	connection_date time.Time
+	connection net.Conn
+}
+
+type cli_user struct{
+	username string
+	cli chan string
+}
+
 var (
-	entering = make(chan client)
+	entering = make(chan cli_user) 
 	leaving  = make(chan client)
 	messages = make(chan string) // all incoming client messages
+	connected_users = make(map[string]user)
+	loggin_sequence = make([]string,0) // for admin role assignation
+	admin string // for current admin storage
 )
 
 func broadcaster() {
-	clients := make(map[client]bool) // all connected clients
+	clients := make(map[client]string) // all connected clients' channels
 	for {
 		select {
 		case msg := <-messages:
 			// Broadcast incoming message to all
 			// clients' outgoing message channels.
-			for cli := range clients {
-				cli <- msg
+			for cli, username := range clients {
+				//If the channel doesn't belong to the sender...
+				if(username != strings.Split(msg," ")[0]){
+					cli <- msg
+				}
 			}
 
-		case cli := <-entering:
-			clients[cli] = true
+		case cli_mapping := <-entering:
+			clients[cli_mapping.cli] = cli_mapping.username
 
 		case cli := <-leaving:
 			delete(clients, cli)
@@ -43,27 +64,89 @@ func broadcaster() {
 		}
 	}
 }
-
 //!-broadcaster
+
 
 //!+handleConn
 func handleConn(conn net.Conn) {
 	ch := make(chan string) // outgoing client messages
-	go clientWriter(conn, ch)
-
-	who := conn.RemoteAddr().String()
-	ch <- "You are " + who
-	messages <- who + " has arrived"
-	entering <- ch
-
+	var who string
+	first:= true
 	input := bufio.NewScanner(conn)
 	for input.Scan() {
-		messages <- who + ": " + input.Text()
+		if(first){
+			//User just logged in
+			who = input.Text()
+			go clientWriter(conn, ch)
+			ch <- "irc-server > Welcome to the Simple IRC Server"
+			ch <- "irc-server > Your user ["+ who+"] is successfully logged" 
+			messages <- "irc-server > New connected user ["+who+"]" 
+			fmt.Println("irc-server > New connected user ["+who+"]")
+			if(len(connected_users) == 0){
+				ch <- "irc-server > Congrats, you were the first user."
+				ch <- "irc-server > You're the new IRC Server ADMIN"
+				fmt.Println("irc-server > ["+who+"] was promoted as the channel ADMIN")
+				admin = who
+			}
+			entering <- cli_user{who,ch}
+			connected_users[who] = user{conn.RemoteAddr().String(),ch,time.Now(),conn}
+			loggin_sequence = append(loggin_sequence,who)
+			first = false
+		}else{
+			//User is able to send messages now
+			incoming_message := input.Text()
+			switch {
+			case incoming_message == "/users":
+				getOnlineUsers(ch)
+
+			case incoming_message == "/time":
+				getTime(ch)
+
+			case strings.HasPrefix(incoming_message,"/user"):
+				request := strings.Split(incoming_message," ")
+				request_username := request[1]
+				getUserInfo(ch,request_username)
+						
+			case strings.HasPrefix(incoming_message,"/msg"):
+				request := strings.Split(incoming_message," ")
+				destination_user := request[1]
+				private_message := request[2:]
+				sendPrivateMessage(ch,who,destination_user,strings.Join(private_message," "))
+				
+			case strings.HasPrefix(incoming_message,"/kick"):
+				if(admin == who){
+					request := strings.Split(incoming_message," ")
+					kicked_user := request[1]
+					kickUser(ch,kicked_user)
+					
+				}else{
+					ch <- "irc-server > Sorry, only the admin is allowed to kick users."
+				}
+
+			default:
+				messages <- who + " > " + input.Text()
+			}
+		}
 	}
 	// NOTE: ignoring potential errors from input.Err()
-
 	leaving <- ch
-	messages <- who + " has left"
+	delete(connected_users,who)
+	messages <- "irc-server > ["+who+"] "+"left channel"
+	fmt.Println("irc-server > ["+who+"] left")
+	if(admin == who){
+		//Assign new admin
+		loggin_sequence = loggin_sequence[1:]
+		//Verifies there are users online to make the oldest admin
+		 if len(loggin_sequence) > 0 {
+			first_user := loggin_sequence[0]
+			admin = first_user
+			fmt.Println("irc-server > [user1] was promoted as the channel ADMIN")
+			connected_users[first_user].cli <- "irc-server > You're the new IRC Server ADMIN"
+		}
+	}else{
+		//delete index of not admin user from loggin_sequence
+		removeFromSequence(who)
+	}
 	conn.Close()
 }
 
@@ -72,17 +155,85 @@ func clientWriter(conn net.Conn, ch <-chan string) {
 		fmt.Fprintln(conn, msg) // NOTE: ignoring network errors
 	}
 }
-
 //!-handleConn
+
+func removeFromSequence(who string){
+	var deleted_element int
+	for index, logged_user := range loggin_sequence {
+		if logged_user == who {
+			deleted_element = index
+			break
+		}
+	}
+	second_half := loggin_sequence[deleted_element+1:]
+	loggin_sequence = loggin_sequence[:deleted_element]
+	loggin_sequence = append(loggin_sequence,second_half...)
+}
+
+//!-Commands
+func kickUser(ch chan string, kicked_user string) {
+	if user, found := connected_users[kicked_user]; found{
+		user.cli <- "irc-server > You're kicked from this channel"
+		user.cli <- "irc-server > Bad language is not allowed on this channel"
+		user.connection.Close()
+		messages <- "irc-server > "+"["+kicked_user+"] was kicked from channel for bad language policy violation"
+		fmt.Println("irc-server > ["+kicked_user+"] was kicked")
+	}else{
+		ch <- "irc-server > Sorry, the user you requested for is not currently online."
+	}
+}
+
+func getUserInfo(ch chan string, request_username string) {
+	var message string
+	if requested_user,found := connected_users[request_username]; found{
+		message = "irc-server > username: "+request_username+", IP: "+requested_user.ip_address+", Connected since: "+requested_user.connection_date.Format("01-02-2006 15:04:05")
+	}else{
+		message = "irc-server > Sorry, the user you requested for is not currently online."
+	}
+	ch <- message		
+}
+
+func getOnlineUsers(ch chan string) {
+	for user_name, user := range connected_users{
+		ch <- "irc-server > "+user_name+" - connected since "+user.connection_date.Format("01-02-2006 15:04:05")
+	}
+}
+
+func sendPrivateMessage(ch chan string, sender_user string, destination_user string, message string){
+	if requested_user,found := connected_users[destination_user]; found{
+		requested_user.cli <- sender_user+" > "+message
+	}else{
+		ch <- "irc-server > Sorry, the user you requested for is not currently online."
+	}
+}
+
+func getTime(ch chan string) {
+	ch <- "irc-server > Local Time: America/Mexico_City "+time.Now().Format("15:04")
+}
+//!-Commands
 
 //!+main
 func main() {
-	listener, err := net.Listen("tcp", "localhost:8000")
+	host := flag.String("host","missing","a server")
+	port := flag.String("port","missing","a port"); 
+	flag.Parse()
+
+	if *host == "missing"{
+		log.Fatalln("Missing argument: host")
+	}
+
+	if *port == "missing" {
+		log.Fatalln("Missing argument: port")
+	}
+
+	listener, err := net.Listen("tcp", *host+":"+*port)
+
 	if err != nil {
 		log.Fatal(err)
 	}
-
+	fmt.Println("irc-server > Simple IRC Server started at "+*host+":"+*port)
 	go broadcaster()
+	fmt.Println("irc-server > Ready for receiving new clients")
 	for {
 		conn, err := listener.Accept()
 		if err != nil {

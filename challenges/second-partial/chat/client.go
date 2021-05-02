@@ -7,6 +7,8 @@
 package main
 
 import (
+	"flag"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -15,13 +17,27 @@ import (
 
 //!+
 func main() {
-	conn, err := net.Dial("tcp", "localhost:8000")
+	user_name := flag.String("user","missing","username")
+	server := flag.String("server","missing","irc-server")
+	flag.Parse()
+	
+	if *user_name == "missing" {
+		log.Fatalln("Missing argument: user")
+	}
+	
+	if *server == "missing" {
+		log.Fatalln("Missing argument: server")
+	}
+
+	conn, err := net.Dial("tcp", *server)
 	if err != nil {
 		log.Fatal(err)
 	}
 	done := make(chan struct{})
+	fmt.Fprintf(conn, *user_name+"\n")
 	go func() {
 		io.Copy(os.Stdout, conn) // NOTE: ignoring errors
+		
 		log.Println("done")
 		done <- struct{}{} // signal the main goroutine
 	}()

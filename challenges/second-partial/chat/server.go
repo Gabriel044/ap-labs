@@ -51,7 +51,7 @@ func broadcaster() {
 			for cli, username := range clients {
 				//If the channel doesn't belong to the sender...
 				if(username != strings.Split(msg," ")[0]){
-					cli <- msg
+					cli <- "\n"+msg
 				}
 			}
 
@@ -70,14 +70,25 @@ func broadcaster() {
 //!+handleConn
 func handleConn(conn net.Conn) {
 	ch := make(chan string) // outgoing client messages
+	var in_messages int //number of messages to be recieved before printing "user > "
 	var who string
 	first:= true
 	input := bufio.NewScanner(conn)
+	local := time.Now().UTC()
+	location,err := time.LoadLocation("America/Mexico_City")
+	if err == nil{
+		local = local.In(location)
+	}
 	for input.Scan() {
 		if(first){
 			//User just logged in
 			who = input.Text()
-			go clientWriter(conn, ch)
+			if len(connected_users) == 0 {
+				in_messages = 4 
+			}else{
+				in_messages = 2
+			}
+			go clientWriter(conn, ch, who, &in_messages)
 			ch <- "irc-server > Welcome to the Simple IRC Server"
 			ch <- "irc-server > Your user ["+ who+"] is successfully logged" 
 			messages <- "irc-server > New connected user ["+who+"]" 
@@ -89,7 +100,7 @@ func handleConn(conn net.Conn) {
 				admin = who
 			}
 			entering <- cli_user{who,ch}
-			connected_users[who] = user{conn.RemoteAddr().String(),ch,time.Now(),conn}
+			connected_users[who] = user{conn.RemoteAddr().String(),ch,local,conn}
 			loggin_sequence = append(loggin_sequence,who)
 			first = false
 		}else{
@@ -97,36 +108,50 @@ func handleConn(conn net.Conn) {
 			incoming_message := input.Text()
 			switch {
 			case incoming_message == "/users":
+				in_messages = len(connected_users)
 				getOnlineUsers(ch)
-
 			case incoming_message == "/time":
-				getTime(ch)
-
+				getTime(ch, local)
 			case strings.HasPrefix(incoming_message,"/user"):
 				request := strings.Split(incoming_message," ")
-				request_username := request[1]
-				getUserInfo(ch,request_username)
+				if len(request) < 2 {
+					ch <- "irc-server > It seems like arguments were missing for this command."
+				}else{
+					request_username := request[1]
+					getUserInfo(ch,request_username)
+				}
 						
 			case strings.HasPrefix(incoming_message,"/msg"):
 				request := strings.Split(incoming_message," ")
-				destination_user := request[1]
-				private_message := request[2:]
-				sendPrivateMessage(ch,who,destination_user,strings.Join(private_message," "))
+				if len(request) < 3 {
+					ch <- "irc-server > It seems like arguments were missing for this command."
+				}else{
+					destination_user := request[1]
+					private_message := request[2:]
+					sendPrivateMessage(ch,who,destination_user,strings.Join(private_message," "))
+					fmt.Fprint(conn, who+" > ")
+				}
 				
 			case strings.HasPrefix(incoming_message,"/kick"):
 				if(admin == who){
 					request := strings.Split(incoming_message," ")
-					kicked_user := request[1]
-					kickUser(ch,kicked_user)
-					
+					if len(request) < 2 {
+						ch <- "irc-server > It seems like arguments were missing for this command."
+					}else{
+						fmt.Fprint(conn,who+" > ")
+						kicked_user := request[1]
+						kickUser(ch,kicked_user)
+					}		
 				}else{
 					ch <- "irc-server > Sorry, only the admin is allowed to kick users."
 				}
 
 			default:
 				messages <- who + " > " + input.Text()
+				fmt.Fprint(conn, who+" > ")
 			}
 		}
+		//fmt.Fprint(conn, who+" > ")
 	}
 	// NOTE: ignoring potential errors from input.Err()
 	leaving <- ch
@@ -139,9 +164,8 @@ func handleConn(conn net.Conn) {
 		//Verifies there are users online to make the oldest admin
 		 if len(loggin_sequence) > 0 {
 			first_user := loggin_sequence[0]
-			admin = first_user
-			fmt.Println("irc-server > [user1] was promoted as the channel ADMIN")
-			connected_users[first_user].cli <- "irc-server > You're the new IRC Server ADMIN"
+			fmt.Println("irc-server > ["+first_user+"] was promoted as the channel ADMIN")
+			connected_users[first_user].cli <- "\nirc-server > You're the new IRC Server ADMIN"
 		}
 	}else{
 		//delete index of not admin user from loggin_sequence
@@ -150,9 +174,16 @@ func handleConn(conn net.Conn) {
 	conn.Close()
 }
 
-func clientWriter(conn net.Conn, ch <-chan string) {
+func clientWriter(conn net.Conn, ch <-chan string, user string, in_messages *int) {
+	num_msg := 0
 	for msg := range ch {
 		fmt.Fprintln(conn, msg) // NOTE: ignoring network errors
+		num_msg ++
+		if num_msg == *in_messages {
+			fmt.Fprint(conn, user+" > ")
+			num_msg = 0
+			*in_messages = 1
+		}
 	}
 }
 //!-handleConn
@@ -179,7 +210,7 @@ func kickUser(ch chan string, kicked_user string) {
 		messages <- "irc-server > "+"["+kicked_user+"] was kicked from channel for bad language policy violation"
 		fmt.Println("irc-server > ["+kicked_user+"] was kicked")
 	}else{
-		ch <- "irc-server > Sorry, the user you requested for is not currently online."
+		ch <- "\nirc-server > Sorry, the user you requested for is not currently online."
 	}
 }
 
@@ -201,14 +232,14 @@ func getOnlineUsers(ch chan string) {
 
 func sendPrivateMessage(ch chan string, sender_user string, destination_user string, message string){
 	if requested_user,found := connected_users[destination_user]; found{
-		requested_user.cli <- sender_user+" > "+message
+		requested_user.cli <- "\n"+sender_user+" > "+message
 	}else{
-		ch <- "irc-server > Sorry, the user you requested for is not currently online."
+		ch <- "\nirc-server > Sorry, the user you requested for is not currently online."
 	}
 }
 
-func getTime(ch chan string) {
-	ch <- "irc-server > Local Time: America/Mexico_City "+time.Now().Format("15:04")
+func getTime(ch chan string, local time.Time) {
+	ch <- "irc-server > Local Time: "+local.Location().String()+" "+local.Format("15:04")
 }
 //!-Commands
 
